@@ -1,5 +1,6 @@
-name: 'Setup Docker Compose'
-description: 'Install Docker Compose with specified version'
+name: 'Setup Docker Compose on Windows/Linux/MacOS'
+description: |
+  Install Docker Compose with specified version, supports Linux, macOS, and Windows platforms.
 inputs:
   version:
     description: 'Docker Compose version to install (defaults to latest version)'
