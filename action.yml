@@ -12,19 +12,9 @@ outputs:
 runs:
   using: "composite"
   steps:
-    - name: Install Docker Compose on Linux/macOS
-      if: runner.os != 'Windows'
+    - name: Install Docker Compose
+      id: install-docker-compose
       shell: bash
-      id: install-docker-compose
-      run: sudo ${{ github.action_path }}/scripts/install-docker-compose.sh
       env:
         DOCKER_COMPOSE_VERSION: ${{ inputs.version }}
-
-    - name: Install Docker Compose on Windows
-      if: runner.os == 'Windows'
-      shell: powershell
-      id: install-docker-compose
-      run: |
-        ${{ github.action_path }}/scripts/install-docker-compose.ps1
-      env:
-        DOCKER_COMPOSE_VERSION: ${{ inputs.version }}
+      run: bash ./scripts/install-docker-compose.sh

@@ -1,10 +1,7 @@
 #!/bin/bash
 
-# Check for root privileges
-if [ "$EUID" -ne 0 ]; then
-    echo "Please run with sudo"
-    exit 1
-fi
+# Debug: Print environment variable
+echo "Debug: DOCKER_COMPOSE_VERSION=${DOCKER_COMPOSE_VERSION}"
 
 # Get system architecture
 arch=$(uname -m)
@@ -19,16 +16,31 @@ case $arch in
     *) echo "Unsupported architecture: $arch"; exit 1 ;;
 esac
 
-# Get operating system
+# Get operating system and set installation path
 os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case $os in
-    darwin) os="darwin" ;;
-    linux) os="linux" ;;
-    *) echo "Unsupported operating system: $os"; exit 1 ;;
+    darwin)
+        os="darwin"
+        INSTALL_DIR="$HOME/.local/bin"
+        BINARY_NAME="docker-compose"
+        ;;
+    linux)
+        os="linux"
+        INSTALL_DIR="$HOME/.local/bin"
+        BINARY_NAME="docker-compose"
+        ;;
+    msys*|mingw*|cygwin*)
+        os="windows"
+        INSTALL_DIR="$HOME/bin"
+        BINARY_NAME="docker-compose.exe"
+        ;;
+    *)
+        echo "Unsupported operating system: $os"
+        exit 1
+        ;;
 esac
 
-# Installation path
-INSTALL_PATH="/usr/local/bin/docker-compose"
+INSTALL_PATH="$INSTALL_DIR/$BINARY_NAME"
 
 # Get version
 if [ "$DOCKER_COMPOSE_VERSION" = "latest" ] || [ -z "$DOCKER_COMPOSE_VERSION" ]; then
@@ -39,41 +51,113 @@ if [ "$DOCKER_COMPOSE_VERSION" = "latest" ] || [ -z "$DOCKER_COMPOSE_VERSION" ];
         VERSION="2.31.0"
     fi
 else
-    VERSION="$DOCKER_COMPOSE_VERSION"
+    # Remove 'v' prefix if present
+    VERSION="${DOCKER_COMPOSE_VERSION#v}"
 fi
 
 # Download URL prefix
 BASE_URL="https://github.com/docker/compose/releases/download/v${VERSION}"
 
 # Build filenames
-BINARY="docker-compose-${os}-${arch}"
+if [ "$os" = "windows" ]; then
+    BINARY="docker-compose-windows-${arch}.exe"
+else
+    BINARY="docker-compose-${os}-${arch}"
+fi
 CHECKSUM="${BINARY}.sha256"
 
-# Create a temporary directory for downloading
-TMP_DIR=$(mktemp -d)
-cd "$TMP_DIR"
+# Create temporary directory
+TEMP_DIR=$(mktemp -d)
+trap 'rm -rf "$TEMP_DIR"' EXIT
+
+echo "Downloading Docker Compose ${VERSION} for ${os}-${arch}..."
 
 # Download files
-echo "Downloading Docker Compose ${VERSION} for ${os}-${arch}..."
-curl -L "${BASE_URL}/${BINARY}" -o "docker-compose"
-curl -L "${BASE_URL}/${CHECKSUM}" -o "docker-compose.sha256"
+curl -SL "${BASE_URL}/${BINARY}" -o "${TEMP_DIR}/${BINARY}"
+curl -SL "${BASE_URL}/${CHECKSUM}" -o "${TEMP_DIR}/${CHECKSUM}"
 
-# Verify checksum
+# Verify download
 echo "Verifying download..."
-echo "$(cat docker-compose.sha256) docker-compose" | sha256sum -c -
+cd "${TEMP_DIR}"
 
-# Move to installation path and set permissions
+# Use shasum on macOS and sha256sum on Linux/Windows
+if [ "$os" = "darwin" ]; then
+    # Extract just the hash from the checksum file
+    EXPECTED_HASH=$(cat "${CHECKSUM}" | awk '{print $1}')
+    # Calculate hash of the binary
+    ACTUAL_HASH=$(shasum -a 256 "${BINARY}" | awk '{print $1}')
+    
+    if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
+        echo "Checksum verification failed!"
+        echo "Expected: $EXPECTED_HASH"
+        echo "Got: $ACTUAL_HASH"
+        exit 1
+    fi
+else
+    # For Linux and Windows (in Git Bash)
+    sha256sum -c "${CHECKSUM}" || exit 1
+fi
+
 echo "Installing to ${INSTALL_PATH}..."
-mv docker-compose "$INSTALL_PATH"
-chmod +x "$INSTALL_PATH"
 
-# Clean up
-cd - > /dev/null
-rm -rf "$TMP_DIR"
+# Create installation directory if it doesn't exist
+mkdir -p "$INSTALL_DIR" || {
+    echo "Failed to create directory $INSTALL_DIR"
+    exit 1
+}
 
-# Output version for GitHub Actions
+# Install the binary
+mv "${BINARY}" "${INSTALL_PATH}" || {
+    echo "Failed to move file to $INSTALL_PATH"
+    exit 1
+}
+chmod +x "${INSTALL_PATH}" || true  # chmod might not work on Windows
+
+echo "Installation complete! Docker Compose ${VERSION} installed at ${INSTALL_PATH}"
+
+# Set output for GitHub Actions
 if [ -n "$GITHUB_OUTPUT" ]; then
     echo "docker-compose-version=${VERSION}" >> "$GITHUB_OUTPUT"
 fi
 
-echo "Installation complete! Docker Compose ${VERSION} installed at ${INSTALL_PATH}"
+# Update PATH in profile files
+update_profile() {
+    local profile_file="$1"
+    local path_dir="$2"
+    
+    # Create profile file if it doesn't exist
+    touch "$profile_file"
+    
+    # Add PATH only if it's not already there
+    if ! grep -q "export PATH=.*$path_dir" "$profile_file"; then
+        echo "export PATH=\"\$PATH:$path_dir\"" >> "$profile_file"
+    fi
+}
+
+# Update PATH for current session
+export PATH="$PATH:$INSTALL_DIR"
+
+# Update PATH in profile files based on OS
+case $os in
+    darwin|linux)
+        update_profile "$HOME/.profile" "$INSTALL_DIR"
+        # Also update bash-specific profile if it exists
+        [ -f "$HOME/.bashrc" ] && update_profile "$HOME/.bashrc" "$INSTALL_DIR"
+        [ -f "$HOME/.bash_profile" ] && update_profile "$HOME/.bash_profile" "$INSTALL_DIR"
+        # Update zsh profile if it exists
+        [ -f "$HOME/.zshrc" ] && update_profile "$HOME/.zshrc" "$INSTALL_DIR"
+        ;;
+    windows)
+        update_profile "$HOME/.bashrc" "$INSTALL_DIR"
+        ;;
+esac
+
+# Verify installation
+if command -v "$BINARY_NAME" &> /dev/null; then
+    echo "Docker Compose successfully installed and accessible in PATH"
+    "$BINARY_NAME" --version
+else
+    echo "Warning: Docker Compose installed but not found in PATH"
+    echo "Current PATH: $PATH"
+    echo "Please add $INSTALL_DIR to your PATH or restart your shell"
+fi

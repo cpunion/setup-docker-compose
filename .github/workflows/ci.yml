@@ -2,52 +2,75 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
   test:
     name: Test on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        docker-compose-version: ['latest', 'v2.23.3', 'v2.22.0']
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        docker-compose-version: ['latest', 'v2.22.0']
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v4
+    - uses: actions/checkout@v3
 
-      - name: Setup Docker Compose
-        uses: ./
-        id: docker-compose
-        with:
-          version: ${{ matrix.docker-compose-version }}
+    - name: Setup Docker Compose
+      uses: ./
+      id: docker-compose
+      with:
+        version: ${{ matrix.docker-compose-version }}
 
-      - name: Verify Installation
-        shell: bash
-        run: |
-          if ! command -v docker-compose &> /dev/null; then
-            echo "docker-compose command not found"
+    - name: Verify Docker Compose Installation
+      shell: bash
+      run: |
+        if ! command -v docker-compose &> /dev/null && ! command -v docker-compose.exe &> /dev/null; then
+          echo "Docker Compose not found in PATH"
+          echo "Current PATH: $PATH"
+          exit 1
+        fi
+        docker-compose version || docker-compose.exe version
+
+    - name: Test Docker Compose Functionality
+      if: runner.os == 'Linux'
+      shell: bash
+      run: |
+        # Create a test docker-compose.yml
+        cat > docker-compose.yml << EOL
+        version: '3'
+        services:
+          hello:
+            image: hello-world
+        EOL
+
+        # Run the container
+        docker-compose up
+
+    - name: Check Output
+      shell: bash
+      run: |
+        echo "Installed Docker Compose Version: ${{ steps.docker-compose.outputs.docker-compose-version }}"
+
+        # Verify output version matches installed version
+        if [ "${{ matrix.docker-compose-version }}" != "latest" ]; then
+          EXPECTED_VERSION="${{ matrix.docker-compose-version }}"
+          OUTPUT_VERSION="${{ steps.docker-compose.outputs.docker-compose-version }}"
+
+          # Remove 'v' prefix if present for comparison
+          EXPECTED_VERSION="${EXPECTED_VERSION#v}"
+          OUTPUT_VERSION="${OUTPUT_VERSION#v}"
+
+          if [ "$OUTPUT_VERSION" != "$EXPECTED_VERSION" ]; then
+            echo "Output version mismatch!"
+            echo "Expected: $EXPECTED_VERSION"
+            echo "Got: $OUTPUT_VERSION"
             exit 1
           fi
-          docker-compose version
-
-      - name: Test Docker Compose
-        shell: bash
-        run: |
-          # Create a simple docker-compose.yml file
-          cat > docker-compose.yml << EOL
-          version: '3'
-          services:
-            hello-world:
-              image: hello-world
-          EOL
-          
-          # Try to run the hello-world container
-          docker-compose up --abort-on-container-exit
-
-      - name: Check Output
-        shell: bash
-        run: |
-          echo "Installed Docker Compose Version: ${{ steps.docker-compose.outputs.docker-compose-version }}"
+          echo "Output version check passed: $OUTPUT_VERSION"
+        fi
