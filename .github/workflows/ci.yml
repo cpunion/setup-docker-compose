@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+jobs:
+  test:
+    name: Test on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        docker-compose-version: ['latest', 'v2.23.3', 'v2.22.0']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Docker Compose
+        uses: ./
+        id: docker-compose
+        with:
+          version: ${{ matrix.docker-compose-version }}
+
+      - name: Verify Installation
+        shell: bash
+        run: |
+          if ! command -v docker-compose &> /dev/null; then
+            echo "docker-compose command not found"
+            exit 1
+          fi
+          docker-compose version
+
+      - name: Test Docker Compose
+        shell: bash
+        run: |
+          # Create a simple docker-compose.yml file
+          cat > docker-compose.yml << EOL
+          version: '3'
+          services:
+            hello-world:
+              image: hello-world
+          EOL
+          
+          # Try to run the hello-world container
+          docker-compose up --abort-on-container-exit
+
+      - name: Check Output
+        shell: bash
+        run: |
+          echo "Installed Docker Compose Version: ${{ steps.docker-compose.outputs.docker-compose-version }}"

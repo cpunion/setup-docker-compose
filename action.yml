@@ -1,0 +1,30 @@
+name: 'Setup Docker Compose'
+description: 'Install Docker Compose with specified version'
+inputs:
+  version:
+    description: 'Docker Compose version to install (defaults to latest version)'
+    required: false
+    default: 'latest'
+outputs:
+  docker-compose-version:
+    description: 'The version of Docker Compose that was installed'
+    value: ${{ steps.install-docker-compose.outputs.docker-compose-version }}
+runs:
+  using: "composite"
+  steps:
+    - name: Install Docker Compose on Linux/macOS
+      if: runner.os != 'Windows'
+      shell: bash
+      id: install-docker-compose
+      run: sudo ${{ github.action_path }}/scripts/install-docker-compose.sh
+      env:
+        DOCKER_COMPOSE_VERSION: ${{ inputs.version }}
+
+    - name: Install Docker Compose on Windows
+      if: runner.os == 'Windows'
+      shell: powershell
+      id: install-docker-compose
+      run: |
+        ${{ github.action_path }}/scripts/install-docker-compose.ps1
+      env:
+        DOCKER_COMPOSE_VERSION: ${{ inputs.version }}
