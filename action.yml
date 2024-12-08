@@ -18,4 +18,10 @@ runs:
       shell: bash
       env:
         DOCKER_COMPOSE_VERSION: ${{ inputs.version }}
-      run: bash ./scripts/install-docker-compose.sh
+      run: |
+        if [ "$RUNNER_OS" == "Windows" ]; then
+          script_path=$(cygpath -u "${{ github.action_path }}/scripts/install-docker-compose.sh")
+          bash "$script_path"
+        else
+          bash "${{ github.action_path }}/scripts/install-docker-compose.sh"
+        fi
