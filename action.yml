@@ -25,3 +25,13 @@ runs:
         else
           bash "${{ github.action_path }}/scripts/install-docker-compose.sh"
         fi
+        echo "$HOME/bin" >> $GITHUB_PATH
+
+    - name: Verify Docker Compose Installation
+      shell: bash
+      run: |
+        docker-compose --version || {
+          echo "Docker Compose installation verification failed"
+          echo "PATH: $PATH"
+          exit 1
+        }
