@@ -21,12 +21,12 @@ os=$(uname -s | tr '[:upper:]' '[:lower:]')
 case $os in
     darwin)
         os="darwin"
-        INSTALL_DIR="$HOME/.local/bin"
+        INSTALL_DIR="$HOME/bin"
         BINARY_NAME="docker-compose"
         ;;
     linux)
         os="linux"
-        INSTALL_DIR="$HOME/.local/bin"
+        INSTALL_DIR="$HOME/bin"
         BINARY_NAME="docker-compose"
         ;;
     msys*|mingw*|cygwin*)
@@ -86,7 +86,7 @@ if [ "$os" = "darwin" ]; then
     EXPECTED_HASH=$(cat "${CHECKSUM}" | awk '{print $1}')
     # Calculate hash of the binary
     ACTUAL_HASH=$(shasum -a 256 "${BINARY}" | awk '{print $1}')
-    
+
     if [ "$EXPECTED_HASH" != "$ACTUAL_HASH" ]; then
         echo "Checksum verification failed!"
         echo "Expected: $EXPECTED_HASH"
@@ -101,63 +101,22 @@ fi
 echo "Installing to ${INSTALL_PATH}..."
 
 # Create installation directory if it doesn't exist
-mkdir -p "$INSTALL_DIR" || {
-    echo "Failed to create directory $INSTALL_DIR"
-    exit 1
-}
+mkdir -p "$INSTALL_DIR"
 
 # Install the binary
 mv "${BINARY}" "${INSTALL_PATH}" || {
     echo "Failed to move file to $INSTALL_PATH"
     exit 1
 }
-chmod +x "${INSTALL_PATH}" || true  # chmod might not work on Windows
 
-echo "Installation complete! Docker Compose ${VERSION} installed at ${INSTALL_PATH}"
+# Make binary executable (skip on Windows)
+if [ "$os" != "windows" ]; then
+    chmod +x "$INSTALL_PATH"
+fi
+
+echo "Docker Compose ${VERSION} installed successfully to $INSTALL_PATH"
 
 # Set output for GitHub Actions
 if [ -n "$GITHUB_OUTPUT" ]; then
     echo "docker-compose-version=${VERSION}" >> "$GITHUB_OUTPUT"
-fi
-
-# Update PATH in profile files
-update_profile() {
-    local profile_file="$1"
-    local path_dir="$2"
-    
-    # Create profile file if it doesn't exist
-    touch "$profile_file"
-    
-    # Add PATH only if it's not already there
-    if ! grep -q "export PATH=.*$path_dir" "$profile_file"; then
-        echo "export PATH=\"\$PATH:$path_dir\"" >> "$profile_file"
-    fi
-}
-
-# Update PATH for current session
-export PATH="$PATH:$INSTALL_DIR"
-
-# Update PATH in profile files based on OS
-case $os in
-    darwin|linux)
-        update_profile "$HOME/.profile" "$INSTALL_DIR"
-        # Also update bash-specific profile if it exists
-        [ -f "$HOME/.bashrc" ] && update_profile "$HOME/.bashrc" "$INSTALL_DIR"
-        [ -f "$HOME/.bash_profile" ] && update_profile "$HOME/.bash_profile" "$INSTALL_DIR"
-        # Update zsh profile if it exists
-        [ -f "$HOME/.zshrc" ] && update_profile "$HOME/.zshrc" "$INSTALL_DIR"
-        ;;
-    windows)
-        update_profile "$HOME/.bashrc" "$INSTALL_DIR"
-        ;;
-esac
-
-# Verify installation
-if command -v "$BINARY_NAME" &> /dev/null; then
-    echo "Docker Compose successfully installed and accessible in PATH"
-    "$BINARY_NAME" --version
-else
-    echo "Warning: Docker Compose installed but not found in PATH"
-    echo "Current PATH: $PATH"
-    echo "Please add $INSTALL_DIR to your PATH or restart your shell"
 fi
